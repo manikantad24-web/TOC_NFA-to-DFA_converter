@@ -1,4 +1,4 @@
-# Demo Video
+## Demo Video
 
 Click the link below to watch the demonstration of the NFA to DFA Converter.
 
