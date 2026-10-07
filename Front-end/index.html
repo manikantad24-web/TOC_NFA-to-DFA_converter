@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NFA → DFA Converter</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="shortcut-help-overlay" class="modal-overlay hidden" aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="shortcut-help-title">
+    <div class="modal-header">
+      <h3 id="shortcut-help-title">Keyboard Shortcuts</h3>
+      <button class="btn sm" id="close-shortcuts-help" type="button" aria-label="Close shortcut help">Close</button>
+    </div>
+    <ul class="shortcut-list">
+      <li><span class="shortcut-key" id="shortcut-ctrl-enter">Ctrl + Enter</span><span>Convert NFA to DFA</span></li>
+      <li><span class="shortcut-key" id="shortcut-ctrl-shift-m">Ctrl + Shift + M</span><span>Minimize DFA</span></li>
+      <li><span class="shortcut-key" id="shortcut-ctrl-shift-r">Ctrl + Shift + R</span><span>Run simulation</span></li>
+      <li><span class="shortcut-key">Esc</span><span>Reset all</span></li>
+      <li><span class="shortcut-key">?</span><span>Open this help dialog</span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo">
+    <div class="logo-icon">∑</div>
+    NFA → DFA Converter
+  </div>
+  <div class="header-actions">
+    <button class="btn sm" onclick="exportDFA()" aria-label="Export DFA to JSON file">⬇ Export DFA</button>
+    <button class="btn sm" onclick="importNFA()" aria-label="Import NFA from JSON file">⬆ Import NFA</button>
+    <div class="toggle" onclick="toggleDarkMode()" role="button" tabindex="0" aria-label="Toggle dark mode" aria-pressed="false">
+      <div class="toggle-switch on" id="darkToggle" aria-hidden="true"><div class="toggle-knob"></div></div>
+      <span id="darkLabel">Dark</span>
+    </div>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- LEFT: NFA Input -->
+  <div class="panel" style="background: var(--bg2);">
+    <div class="panel-header">
+      <span class="panel-title">NFA Definition</span>
+      <div style="display:flex;gap:5px;">
+        <button class="btn sm" onclick="loadExample()" aria-label="Load example NFA">Example</button>
+        <button class="btn sm" onclick="randomNFA()" aria-label="Generate a random NFA">⚄ Random</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="form-section">
+        <h4>States & Alphabet</h4>
+        <div class="form-row">
+          <label for="states">States (comma-separated, e.g. q0,q1,q2)</label>
+          <input type="text" id="states" value="q0,q1,q2" placeholder="q0,q1,q2" oninput="validateStates()" aria-label="NFA states" aria-describedby="hint-states">
+          <div class="field-hint" id="hint-states" aria-live="polite"></div>
+        </div>
+        <div class="form-row">
+          <label for="alphabet">Alphabet (comma-separated, use ε for epsilon)</label>
+          <input type="text" id="alphabet" value="a,b" placeholder="a,b" oninput="validateAlphabet()" aria-label="Alphabet symbols" aria-describedby="hint-alphabet">
+          <div class="field-hint" id="hint-alphabet" aria-live="polite"></div>
+        </div>
+        <div class="form-row">
+          <label for="startState">Start State (must be one of the states above)</label>
+          <input type="text" id="startState" value="q0" placeholder="q0" oninput="validateStart()" aria-label="Start state" aria-describedby="hint-start">
+          <div class="field-hint" id="hint-start" aria-live="polite"></div>
+        </div>
+        <div class="form-row">
+          <label for="finalStates">Final States (comma-separated, must be in states)</label>
+          <input type="text" id="finalStates" value="q2" placeholder="q2" oninput="validateFinals()" aria-label="Final states" aria-describedby="hint-finals">
+          <div class="field-hint" id="hint-finals" aria-live="polite"></div>
+        </div>
+        <button class="btn primary" onclick="buildTransitionTable()" style="width:100%;margin-top:4px;" aria-label="Build the NFA transition table">Build Transition Table</button>
+      </div>
+
+      <div class="form-section" id="transitionSection" style="display:none;">
+        <h4>Transition Table</h4>
+        <p style="font-size:10px;color:var(--text3);margin-bottom:6px;">Use comma for multiple targets. Use {} for empty set.</p>
+        <div class="ttable-wrap" id="transitionTable"></div>
+      </div>
+
+      <div class="form-section">
+        <h4>ε-Closure Preview</h4>
+        <div id="epsilonClosureDisplay" style="font-size:11px;color:var(--text3);font-family:var(--font);">Build transition table first.</div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="form-section">
+        <h4>Actions</h4>
+        <div class="btn-row">
+          <button class="btn primary" onclick="startConversion()" aria-label="Convert the current NFA to a DFA">▶ Convert</button>
+          <button class="btn" onclick="stepConversion()" id="btnStep" disabled aria-label="Step through the conversion one action at a time">⏭ Step</button>
+          <button class="btn" onclick="autoRun()" id="btnAuto" disabled aria-label="Automatically play the conversion">⚡ Auto</button>
+          <button class="btn" onclick="pauseAuto()" id="btnPause" disabled aria-label="Pause automatic conversion playback">⏸ Pause</button>
+          <button class="btn danger" onclick="resetAll()" aria-label="Reset the current NFA and DFA state">↺ Reset</button>
+        </div>
+        <div class="speed-row" style="margin-top:10px;">
+          <label for="speedSlider">Speed</label>
+          <input type="range" id="speedSlider" min="100" max="2000" value="700" style="flex:1;" oninput="updateSpeed(this.value)" aria-label="Conversion animation speed">
+          <span id="speedLabel" aria-live="polite">700ms</span>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h4>Recent</h4>
+        <div id="recentList" class="recent-list" aria-live="polite"></div>
+      </div>
+
+      <hr class="divider">
+      <div class="form-section">
+        <h4>Step Counter</h4>
+        <div class="stat-row">
+          <span class="stat-label">Current Step</span>
+          <span class="stat-val" id="stepCounter" style="color:var(--accent);">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Total Steps</span>
+          <span class="stat-val" id="totalSteps" style="color:var(--text2);">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Elapsed</span>
+          <span class="stat-val" id="elapsedTime" style="color:var(--teal);">0ms</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: Graph Canvas -->
+  <div class="canvas-area">
+    <div class="tabs" role="tablist" aria-label="Graph view tabs">
+      <div class="tab active" onclick="switchTab('nfa')" role="tab" aria-selected="true" tabindex="0" aria-label="View NFA graph">NFA Graph</div>
+      <div class="tab" onclick="switchTab('dfa')" role="tab" aria-selected="false" tabindex="0" aria-label="View DFA graph">DFA Graph</div>
+      <div class="tab" onclick="switchTab('min')" role="tab" aria-selected="false" tabindex="0" aria-label="View minimized DFA graph">Minimized DFA</div>
+    </div>
+    <div class="canvas-container">
+      <canvas id="mainCanvas" role="img" aria-label="NFA or DFA graph visualization"></canvas>
+      <div class="canvas-tooltip" id="canvasTooltip"></div>
+    </div>
+    <!-- DFA Transition Table below canvas -->
+    <div style="max-height:200px;overflow-y:auto;border-top:1px solid var(--border);padding:10px;background:var(--bg2);flex-shrink:0;" id="dfaTableSection">
+      <div style="font-size:11px;color:var(--text3);text-align:center;padding:20px 0;" id="dfaTableEmpty">Convert NFA to generate DFA table.</div>
+      <div id="dfaTableWrap" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:10px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">DFA Transition Table</span>
+          <span id="dfaTableBadge" style="font-size:10px;color:var(--text3);"></span>
+        </div>
+        <div class="dfa-table-wrap"><table class="dfa-table" id="dfaTable"></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Logs & Simulation -->
+  <div class="right-panel">
+
+    <!-- Tab bar -->
+    <div class="mini-tabs" role="tablist" aria-label="Secondary panel tabs">
+      <div class="mini-tab active" onclick="switchMiniTab('log', this)" role="tab" aria-selected="true" tabindex="0" aria-label="View conversion log">Log</div>
+      <div class="mini-tab" onclick="switchMiniTab('sim', this)" role="tab" aria-selected="false" tabindex="0" aria-label="View string simulation panel">Simulate</div>
+      <div class="mini-tab" onclick="switchMiniTab('complexity', this)" role="tab" aria-selected="false" tabindex="0" aria-label="View complexity statistics panel">Stats</div>
+      <div class="mini-tab" onclick="switchMiniTab('min', this)" role="tab" aria-selected="false" tabindex="0" aria-label="View minimized DFA panel">Minimize</div>
+    </div>
+
+    <!-- LOG section -->
+    <div class="r-section active" id="sec-log">
+      <div class="panel-header">
+        <span class="panel-title">Conversion Log</span>
+        <button class="btn sm" onclick="clearLog()" aria-label="Clear conversion history">Clear</button>
+      </div>
+      <div class="panel-body" id="logContainer" role="status" aria-live="polite" aria-atomic="false">
+        <div class="log-entry info" role="status"><span class="log-tag">ready</span>Load an NFA and click Convert to begin.</div>
+      </div>
+    </div>
+
+    <!-- SIMULATE section -->
+    <div class="r-section" id="sec-sim">
+      <div class="panel-header">
+        <span class="panel-title">String Simulation</span>
+      </div>
+      <div class="panel-body">
+        <div class="form-row">
+          <label for="simString">Input String (characters must be in the NFA alphabet)</label>
+          <div class="sim-input-row">
+            <input type="text" id="simString" placeholder="e.g. abb" style="flex:1;" oninput="validateSimString()" aria-label="Input string for DFA simulation" aria-describedby="hint-sim">
+            <button class="btn sm primary" onclick="startSim()" aria-label="Run DFA simulation on the entered string">Run</button>
+          </div>
+          <div class="field-hint" id="hint-sim" aria-live="polite"></div>
+        </div>
+        <div class="sim-string-display" id="simStringDisplay" aria-live="polite">—</div>
+        <div class="sim-state" id="simState" style="color:var(--text3);" role="status" aria-live="polite">—</div>
+        <div class="btn-row" style="justify-content:center;margin-bottom:10px;">
+          <button class="btn sm" onclick="simStep()" id="btnSimStep" disabled aria-label="Step through the simulation one character at a time">⏭ Step</button>
+          <button class="btn sm" onclick="simAutoRun()" id="btnSimAuto" disabled aria-label="Automatically step through the simulation">⚡ Auto</button>
+          <button class="btn sm danger" onclick="resetSim()" aria-label="Reset the current simulation">↺ Reset</button>
+        </div>
+        <div id="simResult"></div>
+        <hr class="divider">
+        <div style="font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Simulation Log</div>
+        <div id="simLog" style="font-size:11px;font-family:var(--font);"></div>
+      </div>
+    </div>
+
+    <!-- STATS / COMPLEXITY section -->
+    <div class="r-section" id="sec-complexity">
+      <div class="panel-header"><span class="panel-title">Complexity & Statistics</span></div>
+      <div class="panel-body">
+        <div class="complexity-card">
+          <h5>NFA States</h5>
+          <div class="stat-row">
+            <span class="stat-label">Count (n)</span>
+            <span class="stat-val" id="stat-nfa-states" style="color:var(--accent);">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Alphabet size</span>
+            <span class="stat-val" id="stat-alpha-size" style="color:var(--teal);">—</span>
+          </div>
+        </div>
+        <div class="complexity-card">
+          <h5>DFA States</h5>
+          <div class="stat-row">
+            <span class="stat-label">Generated</span>
+            <span class="stat-val" id="stat-dfa-states" style="color:var(--amber);">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Worst case (2ⁿ)</span>
+            <span class="stat-val" id="stat-worst-case" style="color:var(--red);">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Actual / Worst case</span>
+            <span class="stat-val" id="stat-ratio" style="color:var(--green);">—</span>
+          </div>
+          <div class="complexity-bar" style="margin-top:8px;">
+            <div class="complexity-fill" id="stat-bar" style="background:var(--accent);width:0%;"></div>
+          </div>
+          <div style="font-size:9px;color:var(--text3);margin-top:3px;">Fill = actual/worst-case ratio</div>
+        </div>
+        <div class="complexity-card">
+          <h5>Minimized DFA</h5>
+          <div class="stat-row">
+            <span class="stat-label">States</span>
+            <span class="stat-val" id="stat-min-states" style="color:var(--green);">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Reduction</span>
+            <span class="stat-val" id="stat-reduction" style="color:var(--teal);">—</span>
+          </div>
+        </div>
+        <div class="complexity-card">
+          <h5>Theoretical Complexity</h5>
+          <div style="font-size:11px;color:var(--text2);line-height:1.7;font-family:var(--font);">
+            NFA→DFA: <span style="color:var(--red);">O(2ⁿ)</span> states<br>
+            ε-closure: <span style="color:var(--amber);">O(n²)</span> per state<br>
+            Subset construction: <span style="color:var(--accent);">O(2ⁿ · |Σ| · n²)</span><br>
+            Minimization: <span style="color:var(--green);">O(n · |Σ| · log n)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MINIMIZE section -->
+    <div class="r-section" id="sec-min">
+      <div class="panel-header">
+        <span class="panel-title">DFA → Minimized DFA</span>
+        <button class="btn sm primary" onclick="minimizeDFAAction()" aria-label="Minimize the current DFA">▶ Minimize</button>
+      </div>
+      <div class="panel-body" id="minLogContainer">
+
+        <!-- Step 0: instruction when nothing done yet -->
+        <div id="min-empty-msg" style="text-align:center;padding:24px 10px;">
+          <div style="font-size:28px;margin-bottom:10px;">⚙</div>
+          <div style="font-size:12px;color:var(--text2);font-weight:600;margin-bottom:6px;">How DFA Minimization Works</div>
+          <div style="font-size:11px;color:var(--text3);font-family:var(--font);line-height:1.8;margin-bottom:14px;">
+            1. Split states into <span style="color:var(--amber)">final</span> and <span style="color:var(--accent)">non-final</span> groups<br>
+            2. Refine partitions by distinguishability<br>
+            3. Merge equivalent states → smaller DFA<br>
+            Algorithm: <span style="color:var(--green)">Hopcroft / Table-filling</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3);">Convert NFA → DFA first, then click <b style="color:var(--accent)">▶ Minimize</b></div>
+        </div>
+
+        <!-- Results shown after minimization -->
+        <div id="min-results" style="display:none;">
+
+          <!-- Summary cards -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;" id="min-summary-cards"></div>
+
+          <!-- Min-DFA Transition Table -->
+          <div class="form-section">
+            <h4>Minimized DFA Transition Table</h4>
+            <div style="overflow-x:auto;margin-top:4px;">
+              <table class="dfa-table" id="minDFATable"></table>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <!-- Partition steps -->
+          <div class="form-section">
+            <h4>Partition Refinement Steps</h4>
+            <div id="minPartitionLog"></div>
+          </div>
+
+          <!-- Before vs After comparison -->
+          <div class="form-section">
+            <h4>Before vs After</h4>
+            <div id="minCompareBar" style="margin-top:6px;"></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end right-panel -->
+
+</div><!-- end main -->
+
+<script src="app.js"></script>
+</body>
+</html>
